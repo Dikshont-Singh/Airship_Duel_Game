@@ -5,7 +5,7 @@ a = Analysis(
     ['Airship_Duel.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('Game Assets', 'Game Assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,4 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['logo.ico'],
 )

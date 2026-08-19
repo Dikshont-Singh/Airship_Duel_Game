@@ -1,14 +1,24 @@
 import pygame
 import math
 import random
+import sys
+from pathlib import Path
 
 pygame.init()
+
+BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+ASSET_DIR = BASE_DIR / "Game Assets"
+
+
+def asset_path(filename):
+    return str(ASSET_DIR / filename)
 
 # ---------------- WINDOW ----------------
 WIDTH, HEIGHT = 1300, 800
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Airship")
 clock = pygame.time.Clock()
+pygame.display.set_icon(pygame.image.load(asset_path("logo.png")).convert_alpha())
 FPS = 60
 # Game states
 game_paused = False
@@ -174,14 +184,14 @@ def draw_help_menu(back_button):
    
 
 # ---------------- LOAD BACKGROUND ----------------
-bg = pygame.image.load("p-1.png").convert_alpha()
+bg = pygame.image.load(asset_path("p-1.png")).convert_alpha()
 bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
 
 # ---------------- LOAD PLANETS ----------------
-planet1 = pygame.image.load('p-2.png').convert_alpha()
-planet2 = pygame.image.load('p-4.png').convert_alpha()
-planet3 = pygame.image.load('p-3.png').convert_alpha()
-star=pygame.image.load('p-5.png').convert_alpha()
+planet1 = pygame.image.load(asset_path('p-2.png')).convert_alpha()
+planet2 = pygame.image.load(asset_path('p-4.png')).convert_alpha()
+planet3 = pygame.image.load(asset_path('p-3.png')).convert_alpha()
+star=pygame.image.load(asset_path('p-5.png')).convert_alpha()
 
 def scale_image(image, scale):
     width = int(image.get_width() * scale)
@@ -191,7 +201,7 @@ def scale_image(image, scale):
 def load_ship_variants(paths, names, scale):
     loaded_ships = []
     for path in paths:
-        image = pygame.image.load(path).convert_alpha()
+        image = pygame.image.load(asset_path(path)).convert_alpha()
         loaded_ships.append(scale_image(image, scale))
     return loaded_ships, names
 
@@ -202,7 +212,7 @@ ship_options, ship_names = load_ship_variants(ship_paths, ship_names_data, 0.3)
 
 # The supplied missile artwork has a solid background and wide padding.
 # Remove the background, crop the missile, then scale it for gameplay.
-missile_source = pygame.image.load("Missile05.png").convert()
+missile_source = pygame.image.load(asset_path("Missile05.png")).convert()
 missile_source.set_colorkey(missile_source.get_at((0, 0)))
 missile_crop = missile_source.subsurface(
     pygame.Rect(
