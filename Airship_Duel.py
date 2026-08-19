@@ -9,6 +9,7 @@ WIDTH, HEIGHT = 1300, 800
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Airship")
 clock = pygame.time.Clock()
+pygame.display.set_icon(pygame.image.load("logo.png").convert_alpha())
 FPS = 60
 # Game states
 game_paused = False
