@@ -5,7 +5,7 @@ a = Analysis(
     ['Airship_Duel.py'],
     pathex=[],
     binaries=[],
-    datas=[('Game Assets', 'Game Assets')],
+    datas=[('Game Assets', 'Game Assets'), ('sound', 'sound')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

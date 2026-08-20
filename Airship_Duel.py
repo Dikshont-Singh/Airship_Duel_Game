@@ -8,16 +8,27 @@ pygame.init()
 
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 ASSET_DIR = BASE_DIR / "Game Assets"
+SOUND_DIR = BASE_DIR / "sound"
 
 
 def asset_path(filename):
     return str(ASSET_DIR / filename)
+
+
+def sound_path(filename):
+    return str(SOUND_DIR / filename)
 
 # ---------------- WINDOW ----------------
 WIDTH, HEIGHT = 1300, 800
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Airship")
 clock = pygame.time.Clock()
+laser_sound = pygame.mixer.Sound(sound_path("laser5.wav"))
+specter_sound = pygame.mixer.Sound(sound_path("space laser.wav"))
+specter_sound.set_volume(0.5)
+missile_sound = pygame.mixer.Sound(sound_path("missile.wav"))
+missile_sound.set_volume(1.0)
+explosion_sound = pygame.mixer.Sound(sound_path("8bit_bomb_explosion.wav"))
 FPS = 60
 # Game states
 game_paused = False
@@ -562,6 +573,7 @@ def create_specter_muzzle_burst(x_pos, y_pos, forward_x, forward_y, owner):
 
 def fire_specter_burst(x_pos, y_pos, forward_x, forward_y, owner):
     """Fire 6-9 faster bullets in a curved shotgun pattern."""
+    specter_sound.play()
     base_angle = math.atan2(forward_y, forward_x)
     side_x = -forward_y
     side_y = forward_x
@@ -609,6 +621,7 @@ def create_missile_trail(x_pos, y_pos, forward_x, forward_y):
 
 def launch_homing_missile(x_pos, y_pos, forward_x, forward_y, owner):
     """Launch a Raven missile in the ship's forward direction."""
+    missile_sound.play()
     missiles.append(
         {
             "x": x_pos + forward_x * 36,
@@ -1233,6 +1246,7 @@ while run:
         ship2_cooldown -= 1
 
     if ship1_alive and keys[pygame.K_LCTRL] and ship1_cooldown == 0:
+        laser_sound.play()
         rad = math.radians(angle - 270)
         dir_x = -math.cos(rad)
         dir_y = math.sin(rad)
@@ -1251,6 +1265,7 @@ while run:
         ship1_cooldown = shoot_cooldown_frames
 
     if ship2_alive and keys[pygame.K_RCTRL] and ship2_cooldown == 0:
+        laser_sound.play()
         rad1 = math.radians(angle1 - 270)
         dir_x1 = -math.cos(rad1)
         dir_y1 = math.sin(rad1)
@@ -1501,6 +1516,7 @@ while run:
                 player_health1 = max(0, player_health1 - missile_damage)
                 missiles.remove(missile)
                 create_explosion(missile["x"], missile["y"], 55)
+                explosion_sound.play()
                 continue
         else:
             if (
@@ -1531,6 +1547,7 @@ while run:
                 player_health = max(0, player_health - missile_damage)
                 missiles.remove(missile)
                 create_explosion(missile["x"], missile["y"], 55)
+                explosion_sound.play()
                 continue
 
     # Rotate the upward-pointing missile artwork to match its travel direction.
