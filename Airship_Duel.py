@@ -24,10 +24,11 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Airship")
 clock = pygame.time.Clock()
 laser_sound = pygame.mixer.Sound(sound_path("laser5.wav"))
+laser_sound.set_volume(0.25)
 specter_sound = pygame.mixer.Sound(sound_path("space laser.wav"))
-specter_sound.set_volume(0.5)
+specter_sound.set_volume(0.1)
 missile_sound = pygame.mixer.Sound(sound_path("missile.wav"))
-missile_sound.set_volume(1.0)
+missile_sound.set_volume(2.0)
 explosion_sound = pygame.mixer.Sound(sound_path("8bit_bomb_explosion.wav"))
 FPS = 60
 # Game states
