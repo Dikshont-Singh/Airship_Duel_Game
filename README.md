@@ -2,8 +2,8 @@
 
 > A fast-paced 2-player space combat game built with Python and Pygame.
 
-![Python](https://img.shields.io/badge/Python-3.x-blue?logo=python)
-![Pygame](https://img.shields.io/badge/Pygame-2.x-green)
+![Python](https://img.shields.io/badge/Python-3.13-blue?logo=python)
+![Pygame](https://img.shields.io/badge/Pygame-2.6.1-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey)
 ![Status](https://img.shields.io/badge/Status-In%20Development-orange)
 
