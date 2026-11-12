@@ -30,6 +30,15 @@ specter_sound.set_volume(0.1)
 missile_sound = pygame.mixer.Sound(sound_path("missile.wav"))
 missile_sound.set_volume(2.0)
 explosion_sound = pygame.mixer.Sound(sound_path("8bit_bomb_explosion.wav"))
+teleport_sound = pygame.mixer.Sound(sound_path("teleport.wav"))
+teleport_sound.set_volume(0.5)
+ship_explosion_sound = pygame.mixer.Sound(sound_path("explosion.wav"))
+ship_explosion_sound.set_volume(0.2)
+charge_sound = pygame.mixer.Sound(sound_path("charge.wav"))
+charge_sound.set_volume(0.18)
+pygame.mixer.set_reserved(1)
+charge_channel = pygame.mixer.Channel(0)
+charge_sound_playing = False
 FPS = 60
 # Game states
 game_paused = False
@@ -67,8 +76,8 @@ def draw_main_menu(buttons, ship_options, ship_names, p1_index, p2_index):
         "Vortex": ("Phase Shift", "Teleports behind the enemy and phases briefly."),
         "Raven": ("Homing Missile", "Launches a tracking missile at the opponent."),
         "Specter": ("Curve Burst", "Fires a fast curved shotgun burst."),
-        "Phantom": ("Cloak", "Stealth prototype. Active ability coming soon."),
-        "Titan": ("Heavy Hull", "A sturdy ship with no active ability yet."),
+        "Phantom": ("Cloak", "Vanish, regenerate health, and uncloak when firing."),
+        "Titan": ("Charged Mode", "Slows down to become tougher and deal more damage."),
     }
 
     for i in range(42):
@@ -355,14 +364,33 @@ missile_recharge_duration = 8 * FPS
 player1_missile_cooldown = 0
 player2_missile_cooldown = 0
 
-# PHANTOM ABILITY: INVISIBILITY CLOAK
-phantom_cloak = False
-phantom_cloak_start = 0
+# PHANTOM ABILITY: CLOAK
+PHANTOM_NAME = "Phantom"
+phantom_cloak_duration = 3 * FPS
+phantom_cloak_cooldown_duration = 8 * FPS
+phantom_heal_per_second = 8
+player1_cloak_active = False
+player2_cloak_active = False
+player1_cloak_timer = 0
+player2_cloak_timer = 0
+player1_cloak_cooldown = 0
+player2_cloak_cooldown = 0
 
-PHANTOM_CLOAK_DURATION = 3000      
-PHANTOM_CLOAK_COOLDOWN = 8000
-
-phantom_last_used = -PHANTOM_CLOAK_COOLDOWN
+# TITAN ABILITY: CHARGED MODE
+TITAN_NAME = "Titan"
+titan_charge_duration = 5 * FPS
+titan_charge_cooldown_duration = 10 * FPS
+titan_damage_reduction = 0.5
+titan_damage_multiplier = 1.75
+titan_speed_multiplier = 0.6
+TITAN_SPARK_INTERVAL = 3
+titan_spark_tick = 0
+player1_titan_charged = False
+player2_titan_charged = False
+player1_titan_charge_timer = 0
+player2_titan_charge_timer = 0
+player1_titan_charge_cooldown = 0
+player2_titan_charge_cooldown = 0
 
 
 
@@ -399,6 +427,13 @@ def reset_match():
     global player1_phase_shift_cooldown, player2_phase_shift_cooldown
     global player1_phase_protection, player2_phase_protection
     global player1_missile_cooldown, player2_missile_cooldown
+    global player1_cloak_active, player2_cloak_active
+    global player1_cloak_timer, player2_cloak_timer
+    global player1_cloak_cooldown, player2_cloak_cooldown
+    global player1_titan_charged, player2_titan_charged
+    global player1_titan_charge_timer, player2_titan_charge_timer
+    global player1_titan_charge_cooldown, player2_titan_charge_cooldown
+    global charge_sound_playing, titan_spark_tick
     global bullets, missiles, particles, ship1_cooldown, ship2_cooldown
 
     x, y = P1_START_X, P1_START_Y
@@ -441,6 +476,21 @@ def reset_match():
     player2_phase_protection = 0
     player1_missile_cooldown = 0
     player2_missile_cooldown = 0
+    player1_cloak_active = False
+    player2_cloak_active = False
+    player1_cloak_timer = 0
+    player2_cloak_timer = 0
+    player1_cloak_cooldown = 0
+    player2_cloak_cooldown = 0
+    player1_titan_charged = False
+    player2_titan_charged = False
+    player1_titan_charge_timer = 0
+    player2_titan_charge_timer = 0
+    player1_titan_charge_cooldown = 0
+    player2_titan_charge_cooldown = 0
+    titan_spark_tick = 0
+    charge_channel.stop()
+    charge_sound_playing = False
     bullets = []
     missiles = []
     particles = []
@@ -503,6 +553,24 @@ def create_engine_trail(x_pos, y_pos, forward_x, forward_y):
                 "life": random.randint(5, 9),
                 "size": random.randint(2, 4),
                 "color": random.choice([(255, 235, 120), (255, 155, 55), (255, 80, 35)]),
+            }
+        )
+
+
+def create_titan_charge_sparks(x_pos, y_pos):
+    """Emit a few short yellow sparks around a charged Titan."""
+    for _ in range(2):
+        spark_angle = random.uniform(0, math.tau)
+        radius = random.uniform(22, 42)
+        particles.append(
+            {
+                "x": x_pos + math.cos(spark_angle) * radius,
+                "y": y_pos + math.sin(spark_angle) * radius,
+                "vx": math.cos(spark_angle) * random.uniform(0.5, 2.0),
+                "vy": math.sin(spark_angle) * random.uniform(0.5, 2.0),
+                "life": random.randint(6, 13),
+                "size": random.randint(1, 3),
+                "color": random.choice([(255, 220, 45), (255, 180, 30), (255, 245, 155)]),
             }
         )
 
@@ -767,6 +835,44 @@ def draw_phase_shift_bar(surface, cooldown, player):
     surface.blit(label, (x, y + 14))
 
 
+# ---------------- PHANTOM ABILITY: USER INTERFACE ----------------
+def draw_cloak_bar(surface, timer, cooldown, player):
+    bar_width = 200
+    bar_height = 12
+    x = 20 if player == 1 else WIDTH - bar_width - 20
+    y = 46
+    if timer > 0:
+        ratio = timer / phantom_cloak_duration
+        status = f"CLOAKED: {timer / FPS:.1f}s"
+    else:
+        ratio = 1 - (cooldown / phantom_cloak_cooldown_duration)
+        status = f"CLOAK RECHARGING: {cooldown / FPS:.1f}s"
+    pygame.draw.rect(surface, (42, 35, 75), (x, y, bar_width, bar_height))
+    pygame.draw.rect(surface, (180, 120, 255), (x, y, bar_width * ratio, bar_height))
+    pygame.draw.rect(surface, (230, 205, 255), (x, y, bar_width, bar_height), 1)
+    label = pygame.font.SysFont("Arial", 14).render(status, True, (230, 205, 255))
+    surface.blit(label, (x, y + 14))
+
+
+# ---------------- TITAN ABILITY: USER INTERFACE ----------------
+def draw_titan_charge_bar(surface, timer, cooldown, player):
+    bar_width = 200
+    bar_height = 12
+    x = 20 if player == 1 else WIDTH - bar_width - 20
+    y = 46
+    if timer > 0:
+        ratio = timer / titan_charge_duration
+        status = f"CHARGED: {timer / FPS:.1f}s"
+    else:
+        ratio = 1 - (cooldown / titan_charge_cooldown_duration)
+        status = f"CHARGE RECHARGING: {cooldown / FPS:.1f}s"
+    pygame.draw.rect(surface, (80, 65, 20), (x, y, bar_width, bar_height))
+    pygame.draw.rect(surface, (255, 215, 45), (x, y, bar_width * ratio, bar_height))
+    pygame.draw.rect(surface, (255, 245, 175), (x, y, bar_width, bar_height), 1)
+    label = pygame.font.SysFont("Arial", 14).render(status, True, (255, 245, 175))
+    surface.blit(label, (x, y + 14))
+
+
 # ---------------- RAVEN ABILITY: USER INTERFACE ----------------
 def draw_missile_bar(surface, cooldown, player):
     """Draw Raven's missile recharge bar below the health bar."""
@@ -857,8 +963,25 @@ while run:
                     vel_x = 0
                     vel_y = 0
                     create_phase_blast(x, y)
+                    teleport_sound.play()
                     player1_phase_protection = phase_protection_duration
                     player1_phase_shift_cooldown = phase_shift_recharge_duration
+                elif (
+                    ship_names[player1_ship_index] == PHANTOM_NAME
+                    and not player1_cloak_active
+                    and player1_cloak_cooldown == 0
+                ):
+                    player1_cloak_active = True
+                    player1_cloak_timer = phantom_cloak_duration
+                    player1_cloak_cooldown = phantom_cloak_cooldown_duration
+                elif (
+                    ship_names[player1_ship_index] == TITAN_NAME
+                    and not player1_titan_charged
+                    and player1_titan_charge_cooldown == 0
+                ):
+                    player1_titan_charged = True
+                    player1_titan_charge_timer = titan_charge_duration
+                    player1_titan_charge_cooldown = titan_charge_cooldown_duration
                 elif (
                     ship_names[player1_ship_index] == RAVEN_NAME
                     and player1_missile_cooldown == 0
@@ -916,8 +1039,25 @@ while run:
                     vel_x1 = 0
                     vel_y1 = 0
                     create_phase_blast(x1, y1)
+                    teleport_sound.play()
                     player2_phase_protection = phase_protection_duration
                     player2_phase_shift_cooldown = phase_shift_recharge_duration
+                elif (
+                    ship_names[player2_ship_index] == PHANTOM_NAME
+                    and not player2_cloak_active
+                    and player2_cloak_cooldown == 0
+                ):
+                    player2_cloak_active = True
+                    player2_cloak_timer = phantom_cloak_duration
+                    player2_cloak_cooldown = phantom_cloak_cooldown_duration
+                elif (
+                    ship_names[player2_ship_index] == TITAN_NAME
+                    and not player2_titan_charged
+                    and player2_titan_charge_cooldown == 0
+                ):
+                    player2_titan_charged = True
+                    player2_titan_charge_timer = titan_charge_duration
+                    player2_titan_charge_cooldown = titan_charge_cooldown_duration
                 elif (
                     ship_names[player2_ship_index] == RAVEN_NAME
                     and player2_missile_cooldown == 0
@@ -1025,6 +1165,30 @@ while run:
         draw_phase_shift_bar(screen, player1_phase_shift_cooldown, 1)
     if ship_names[player2_ship_index] == VORTEX_NAME and player2_phase_shift_cooldown > 0:
         draw_phase_shift_bar(screen, player2_phase_shift_cooldown, 2)
+    if ship_names[player1_ship_index] == PHANTOM_NAME and (
+        player1_cloak_active or player1_cloak_cooldown > 0
+    ):
+        draw_cloak_bar(
+            screen, player1_cloak_timer, player1_cloak_cooldown, 1
+        )
+    if ship_names[player2_ship_index] == PHANTOM_NAME and (
+        player2_cloak_active or player2_cloak_cooldown > 0
+    ):
+        draw_cloak_bar(
+            screen, player2_cloak_timer, player2_cloak_cooldown, 2
+        )
+    if ship_names[player1_ship_index] == TITAN_NAME and (
+        player1_titan_charged or player1_titan_charge_cooldown > 0
+    ):
+        draw_titan_charge_bar(
+            screen, player1_titan_charge_timer, player1_titan_charge_cooldown, 1
+        )
+    if ship_names[player2_ship_index] == TITAN_NAME and (
+        player2_titan_charged or player2_titan_charge_cooldown > 0
+    ):
+        draw_titan_charge_bar(
+            screen, player2_titan_charge_timer, player2_titan_charge_cooldown, 2
+        )
     if ship_names[player1_ship_index] == RAVEN_NAME and player1_missile_cooldown > 0:
         draw_missile_bar(screen, player1_missile_cooldown, 1)
     if ship_names[player2_ship_index] == RAVEN_NAME and player2_missile_cooldown > 0:
@@ -1152,6 +1316,76 @@ while run:
     if player2_phase_protection > 0:
         player2_phase_protection -= 1
 
+    # ---------------- PHANTOM ABILITY: CLOAK ----------------
+    player1_is_phantom = ship_names[player1_ship_index] == PHANTOM_NAME
+    player2_is_phantom = ship_names[player2_ship_index] == PHANTOM_NAME
+
+    if not player1_is_phantom or not ship1_alive:
+        player1_cloak_active = False
+        player1_cloak_timer = 0
+        player1_cloak_cooldown = 0
+    else:
+        if player1_cloak_active:
+            player1_cloak_timer -= 1
+            player_health = min(
+                player_max_health, player_health + phantom_heal_per_second / FPS
+            )
+            if player1_cloak_timer <= 0:
+                player1_cloak_active = False
+        if player1_cloak_cooldown > 0:
+            player1_cloak_cooldown -= 1
+
+    if not player2_is_phantom or not ship2_alive:
+        player2_cloak_active = False
+        player2_cloak_timer = 0
+        player2_cloak_cooldown = 0
+    else:
+        if player2_cloak_active:
+            player2_cloak_timer -= 1
+            player_health1 = min(
+                player_max_health1, player_health1 + phantom_heal_per_second / FPS
+            )
+            if player2_cloak_timer <= 0:
+                player2_cloak_active = False
+        if player2_cloak_cooldown > 0:
+            player2_cloak_cooldown -= 1
+
+    # ---------------- TITAN ABILITY: CHARGED MODE ----------------
+    player1_is_titan = ship_names[player1_ship_index] == TITAN_NAME
+    player2_is_titan = ship_names[player2_ship_index] == TITAN_NAME
+
+    if not player1_is_titan or not ship1_alive:
+        player1_titan_charged = False
+        player1_titan_charge_timer = 0
+        player1_titan_charge_cooldown = 0
+    else:
+        if player1_titan_charged:
+            player1_titan_charge_timer -= 1
+            if player1_titan_charge_timer <= 0:
+                player1_titan_charged = False
+        if player1_titan_charge_cooldown > 0:
+            player1_titan_charge_cooldown -= 1
+
+    if not player2_is_titan or not ship2_alive:
+        player2_titan_charged = False
+        player2_titan_charge_timer = 0
+        player2_titan_charge_cooldown = 0
+    else:
+        if player2_titan_charged:
+            player2_titan_charge_timer -= 1
+            if player2_titan_charge_timer <= 0:
+                player2_titan_charged = False
+        if player2_titan_charge_cooldown > 0:
+            player2_titan_charge_cooldown -= 1
+
+    titan_charge_active = player1_titan_charged or player2_titan_charged
+    if titan_charge_active and not charge_sound_playing:
+        charge_channel.play(charge_sound, loops=-1)
+        charge_sound_playing = True
+    elif not titan_charge_active and charge_sound_playing:
+        charge_channel.fadeout(250)
+        charge_sound_playing = False
+
     # ---------------- RAVEN ABILITY: MISSILE RECHARGE ----------------
     if player1_missile_cooldown > 0:
         player1_missile_cooldown -= 1
@@ -1174,9 +1408,11 @@ while run:
         rad = math.radians(angle-90)
         forward_x = math.cos(rad)
         forward_y = -math.sin(rad)
-        vel_x += forward_x * acceleration
-        vel_y += forward_y * acceleration
-        create_engine_trail(x, y, forward_x, forward_y)
+        titan_thrust = acceleration * (titan_speed_multiplier if player1_titan_charged else 1)
+        vel_x += forward_x * titan_thrust
+        vel_y += forward_y * titan_thrust
+        if not player1_cloak_active:
+            create_engine_trail(x, y, forward_x, forward_y)
     if ship1_alive and player1_blade_dash_timer > 0:
         dash_x, dash_y = player1_blade_dash_dir
         vel_x = dash_x * blade_dash_speed
@@ -1187,7 +1423,9 @@ while run:
     vel_y *= friction
 
     speed = math.hypot(vel_x, vel_y)
-    current_max_speed = blade_dash_speed if player1_blade_dash_timer > 0 else max_speed
+    current_max_speed = blade_dash_speed if player1_blade_dash_timer > 0 else (
+        max_speed * titan_speed_multiplier if player1_titan_charged else max_speed
+    )
     if speed > current_max_speed:
         scale = current_max_speed / speed
         vel_x *= scale
@@ -1211,9 +1449,11 @@ while run:
         rad1 = math.radians(angle1-270)
         forward_x1 = -math.cos(rad1)
         forward_y1 = math.sin(rad1)
-        vel_x1 += forward_x1 * acceleration
-        vel_y1 += forward_y1 * acceleration
-        create_engine_trail(x1, y1, forward_x1, forward_y1)
+        titan_thrust1 = acceleration * (titan_speed_multiplier if player2_titan_charged else 1)
+        vel_x1 += forward_x1 * titan_thrust1
+        vel_y1 += forward_y1 * titan_thrust1
+        if not player2_cloak_active:
+            create_engine_trail(x1, y1, forward_x1, forward_y1)
     if ship2_alive and player2_blade_dash_timer > 0:
         dash_x1, dash_y1 = player2_blade_dash_dir
         vel_x1 = dash_x1 * blade_dash_speed
@@ -1225,7 +1465,9 @@ while run:
     vel_y1 *= friction
 
     speed1 = math.hypot(vel_x1, vel_y1)
-    current_max_speed1 = blade_dash_speed if player2_blade_dash_timer > 0 else max_speed
+    current_max_speed1 = blade_dash_speed if player2_blade_dash_timer > 0 else (
+        max_speed * titan_speed_multiplier if player2_titan_charged else max_speed
+    )
     if speed1 > current_max_speed1:
         scale1 = current_max_speed1 / speed1
         vel_x1 *= scale1
@@ -1246,7 +1488,15 @@ while run:
     if ship2_cooldown > 0:
         ship2_cooldown -= 1
 
-    if ship1_alive and keys[pygame.K_LCTRL] and ship1_cooldown == 0:
+    # Firing is allowed, but deliberately ends Phantom's cloak first.
+    if player1_cloak_active and keys[pygame.K_LCTRL]:
+        player1_cloak_active = False
+        player1_cloak_timer = 0
+    if player2_cloak_active and keys[pygame.K_RCTRL]:
+        player2_cloak_active = False
+        player2_cloak_timer = 0
+
+    if ship1_alive and not player1_cloak_active and keys[pygame.K_LCTRL] and ship1_cooldown == 0:
         laser_sound.play()
         rad = math.radians(angle - 270)
         dir_x = -math.cos(rad)
@@ -1261,11 +1511,12 @@ while run:
                     "vy": dir_y * bullet_speed,
                     "life": bullet_life,
                     "owner": 1,
+                    "damage": bullet_damage * (titan_damage_multiplier if player1_titan_charged else 1),
                 }
             )
         ship1_cooldown = shoot_cooldown_frames
 
-    if ship2_alive and keys[pygame.K_RCTRL] and ship2_cooldown == 0:
+    if ship2_alive and not player2_cloak_active and keys[pygame.K_RCTRL] and ship2_cooldown == 0:
         laser_sound.play()
         rad1 = math.radians(angle1 - 270)
         dir_x1 = -math.cos(rad1)
@@ -1280,6 +1531,7 @@ while run:
                     "vy": dir_y1 * bullet_speed,
                     "life": bullet_life,
                     "owner": 2,
+                    "damage": bullet_damage * (titan_damage_multiplier if player2_titan_charged else 1),
                 }
             )
         ship2_cooldown = shoot_cooldown_frames
@@ -1328,10 +1580,14 @@ while run:
             and player2_phase_protection == 0
         ):
             dash_x, dash_y = player1_blade_dash_dir
-            player_health1 = max(0, player_health1 - blade_dash_damage)
+            incoming_damage = blade_dash_damage * (titan_damage_reduction if player2_titan_charged else 1)
+            player_health1 = max(0, player_health1 - incoming_damage)
             blade_knockback_to_p2 = (dash_x * blade_dash_knockback, dash_y * blade_dash_knockback)
             player1_blade_dash_hit = True
             create_blade_impact(impact_x, impact_y)
+            if player_health1 <= 0:
+                create_explosion(ship_rect2.centerx, ship_rect2.centery)
+                ship_explosion_sound.play()
 
         if (
             player2_blade_dash_timer > 0
@@ -1339,10 +1595,14 @@ while run:
             and player1_phase_protection == 0
         ):
             dash_x1, dash_y1 = player2_blade_dash_dir
-            player_health = max(0, player_health - blade_dash_damage)
+            incoming_damage = blade_dash_damage * (titan_damage_reduction if player1_titan_charged else 1)
+            player_health = max(0, player_health - incoming_damage)
             blade_knockback_to_p1 = (dash_x1 * blade_dash_knockback, dash_y1 * blade_dash_knockback)
             player2_blade_dash_hit = True
             create_blade_impact(impact_x, impact_y)
+            if player_health <= 0:
+                create_explosion(ship_rect.centerx, ship_rect.centery)
+                ship_explosion_sound.play()
 
         bounce_strength = 1.5
         vel_x = -vel_x * 0.7 - normal_x * bounce_strength
@@ -1403,10 +1663,12 @@ while run:
             and player2_blade_dash_timer == 0
             and ship_rect2.collidepoint(bullet["x"], bullet["y"])
         ):
-            player_health1 = max(0, player_health1 - bullet.get("damage", bullet_damage))
+            incoming_damage = bullet.get("damage", bullet_damage) * (titan_damage_reduction if player2_titan_charged else 1)
+            player_health1 = max(0, player_health1 - incoming_damage)
             bullets.remove(bullet)
             if player_health1 <= 0:
                 create_explosion(ship_rect2.centerx, ship_rect2.centery)
+                ship_explosion_sound.play()
             continue
 
         if (
@@ -1438,10 +1700,12 @@ while run:
             and player1_blade_dash_timer == 0
             and ship_rect.collidepoint(bullet["x"], bullet["y"])
         ):
-            player_health = max(0, player_health - bullet.get("damage", bullet_damage))
+            incoming_damage = bullet.get("damage", bullet_damage) * (titan_damage_reduction if player1_titan_charged else 1)
+            player_health = max(0, player_health - incoming_damage)
             bullets.remove(bullet)
             if player_health <= 0:
                 create_explosion(ship_rect.centerx, ship_rect.centery)
+                ship_explosion_sound.play()
             continue
 
     # ---------- DRAW BULLETS ----------
@@ -1514,10 +1778,13 @@ while run:
                 and player2_blade_dash_timer == 0
                 and ship_rect2.collidepoint(missile["x"], missile["y"])
             ):
-                player_health1 = max(0, player_health1 - missile_damage)
+                incoming_damage = missile_damage * (titan_damage_reduction if player2_titan_charged else 1)
+                player_health1 = max(0, player_health1 - incoming_damage)
                 missiles.remove(missile)
                 create_explosion(missile["x"], missile["y"], 55)
                 explosion_sound.play()
+                if player_health1 <= 0:
+                    ship_explosion_sound.play()
                 continue
         else:
             if (
@@ -1545,10 +1812,13 @@ while run:
                 and player1_blade_dash_timer == 0
                 and ship_rect.collidepoint(missile["x"], missile["y"])
             ):
-                player_health = max(0, player_health - missile_damage)
+                incoming_damage = missile_damage * (titan_damage_reduction if player1_titan_charged else 1)
+                player_health = max(0, player_health - incoming_damage)
                 missiles.remove(missile)
                 create_explosion(missile["x"], missile["y"], 55)
                 explosion_sound.play()
+                if player_health <= 0:
+                    ship_explosion_sound.play()
                 continue
 
     # Rotate the upward-pointing missile artwork to match its travel direction.
@@ -1559,6 +1829,17 @@ while run:
         screen.blit(rotated_missile, missile_rect)
 
     # ---------- PARTICLE UPDATE ----------
+    # Limit particle allocations while keeping the charged-spark effect visible.
+    if titan_charge_active:
+        titan_spark_tick = (titan_spark_tick + 1) % TITAN_SPARK_INTERVAL
+        if titan_spark_tick == 0:
+            if player1_titan_charged:
+                create_titan_charge_sparks(x, y)
+            if player2_titan_charged:
+                create_titan_charge_sparks(x1, y1)
+    else:
+        titan_spark_tick = 0
+
     for particle in particles[:]:
         particle["x"] += particle["vx"]
         particle["y"] += particle["vy"]
@@ -1575,9 +1856,9 @@ while run:
             particle["size"],
         )
 
-    if ship1_alive:
+    if ship1_alive and not player1_cloak_active:
         screen.blit(rotated_ship, ship_rect.topleft)
-    if ship2_alive:
+    if ship2_alive and not player2_cloak_active:
         screen.blit(rotated_ship2, ship_rect2.topleft)    
 
     # ---------------- FALCON ABILITY: FORCE-FIELD EFFECT ----------------
